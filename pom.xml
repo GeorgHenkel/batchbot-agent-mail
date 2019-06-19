@@ -22,6 +22,13 @@
 
   <dependencies>
     <dependency>
+      <groupId>io.batchbot</groupId>
+      <artifactId>api-models</artifactId>
+      <version>0.1</version>
+    </dependency>
+
+    <!-- kotlin -->
+    <dependency>
       <groupId>org.jetbrains.kotlin</groupId>
       <artifactId>kotlin-stdlib-jdk8</artifactId>
       <version>${kotlin.version}</version>

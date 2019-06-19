@@ -1,4 +1,4 @@
-package de.batchbot.agent.mail
+package io.batchbot.agent.mail
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication

@@ -1,4 +1,4 @@
-package de.batchbot.agent.mail.service.mail
+package io.batchbot.agent.mail.service.mail
 
 import org.springframework.stereotype.Component
 

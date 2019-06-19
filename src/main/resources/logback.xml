@@ -5,7 +5,7 @@
     </layout>
   </appender>
 
-  <logger name="de.batchbot" level="DEBUG"/>
+  <logger name="io.batchbot" level="DEBUG"/>
 
   <root level="INFO">
     <appender-ref ref="stdout"/>

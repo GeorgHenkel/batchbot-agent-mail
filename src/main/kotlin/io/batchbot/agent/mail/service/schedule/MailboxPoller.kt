@@ -1,17 +1,22 @@
-package de.batchbot.agent.mail.service.schedule
+package io.batchbot.agent.mail.service.schedule
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
-import de.batchbot.agent.mail.model.JobEvent
+import io.batchbot.agent.mail.model.BatchEvent
+import io.batchbot.api.models.job.JobEvent
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.io.InputStream
+import java.time.Instant
 import java.util.*
 import javax.mail.*
 import javax.mail.internet.InternetAddress
 import javax.xml.bind.JAXBContext
+import javax.mail.Flags.Flag.DELETED
+import javax.mail.Flags.Flag.SEEN
+import javax.mail.search.FlagTerm
 
 @Component
 class MailboxPoller(
@@ -38,28 +43,16 @@ class MailboxPoller(
             store.getFolder("INBOX").use { inbox ->
                 inbox.open(Folder.READ_WRITE)
 
-                if (inbox.messageCount == 0) {
-                    log.debug("Found no new emails")
+                if (inbox.unreadMessageCount == 0) {
+                    log.info("found no new emails")
                     return
                 }
 
-                var processCount = 0
-                inbox.messages
-                        .filter { it.content is Multipart }
-                        .forEach { msg ->
-                            val from = (msg.from[0] as InternetAddress).address
+                val unseenMessages = inbox.search(FlagTerm(Flags(SEEN), false))
+                log.info("processing ${unseenMessages.size} new mails")
 
-                            val multipart = msg.content as Multipart
-                            for (k in 0 until multipart.count) {
-                                val attachment = parseAttachment(multipart.getBodyPart(k))
-
-                                if (attachment != null) processCount++
-                            }
-
-                            msg.setFlag(Flags.Flag.DELETED, true)
-                        }
-
-                log.debug("$processCount emails processed")
+                val batchEvents = handleMessages(unseenMessages)
+                log.info("${batchEvents.size} mails were processable")
             }
         }
     }
@@ -81,6 +74,31 @@ class MailboxPoller(
         if (protocol == "pop3" && enableTls) properties["mail.pop3.starttls.enable"] = enableTls
 
         return Session.getDefaultInstance(properties)
+    }
+
+    private fun handleMessages(messages: Array<Message>): List<BatchEvent> {
+        val eventList = mutableListOf<BatchEvent>()
+
+        messages
+                .filter { it.content is Multipart }
+                .forEach { msg ->
+                    val from = (msg.from[0] as InternetAddress).address
+
+                    log.debug("processing email [$from]")
+
+                    var processed = false
+                    val multipart = msg.content as Multipart
+                    for (k in 0 until multipart.count) {
+                        parseAttachment(multipart.getBodyPart(k))?.let {
+                            processed = true
+                            eventList.add(BatchEvent(from, Instant.now().toString(), it))
+                        }
+                    }
+
+                    if (processed) msg.setFlag(DELETED, true) else msg.setFlag(SEEN, true)
+                }
+
+        return eventList
     }
 
     private fun parseAttachment(bodyPart: BodyPart): JobEvent? {
