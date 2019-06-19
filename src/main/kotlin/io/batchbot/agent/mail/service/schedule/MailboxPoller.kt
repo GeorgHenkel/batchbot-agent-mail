@@ -3,8 +3,10 @@ package io.batchbot.agent.mail.service.schedule
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import io.batchbot.agent.mail.model.BatchEvent
+import io.batchbot.agent.mail.service.messaging.BatchEventMessagingService
 import io.batchbot.api.models.job.JobEvent
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
@@ -25,19 +27,19 @@ class MailboxPoller(
         @Value("\${mail.port}") val port: String,
         @Value("\${mail.tlsEnabled}") val enableTls: Boolean,
         @Value("\${mail.user}") val user: String,
-        @Value("\${mail.password}") val password: String
+        @Value("\${mail.password}") val password: String,
+        @Autowired val messageSender: BatchEventMessagingService
 ) {
     companion object {
         private val log = LoggerFactory.getLogger(MailboxPoller::class.java)
     }
 
-    @Scheduled(fixedDelay = 30000)
+    @Scheduled(fixedDelayString = "\${scheduler.delay}")
     fun pollMailbox() {
         log.info("polling mailbox for new mails")
 
         val mailSession = initMailSession()
-
-        mailSession.store.use { store ->
+        val batchEvents = mailSession.store.use { store ->
             store.connect(user, password)
 
             store.getFolder("INBOX").use { inbox ->
@@ -51,10 +53,12 @@ class MailboxPoller(
                 val unseenMessages = inbox.search(FlagTerm(Flags(SEEN), false))
                 log.info("processing ${unseenMessages.size} new mails")
 
-                val batchEvents = handleMessages(unseenMessages)
-                log.info("${batchEvents.size} mails were processable")
+                handleMessages(unseenMessages)
             }
         }
+
+        log.info("${batchEvents.size} mails are processable")
+        messageSender.sendBatchEvents(batchEvents)
     }
 
     private fun initMailSession(): Session {
@@ -63,6 +67,7 @@ class MailboxPoller(
 
         properties[String.format("mail.%s.host", protocol)] = host
         properties[String.format("mail.%s.port", protocol)] = port
+        properties[String.format("mail.%s.starttls.enable", protocol)] = enableTls
 
         if (protocol == "pop3s" || protocol == "imaps") {
             // SSL setting
@@ -71,32 +76,28 @@ class MailboxPoller(
             properties[String.format("mail.%s.socketFactory.port", protocol)] = port
         }
 
-        if (protocol == "pop3" && enableTls) properties["mail.pop3.starttls.enable"] = enableTls
-
         return Session.getDefaultInstance(properties)
     }
 
-    private fun handleMessages(messages: Array<Message>): List<BatchEvent> {
+    private fun handleMessages(messages: Array<Message>) =
+            messages.filter { it.content is Multipart }.flatMap { processMail(it) }
+
+    private fun processMail(message: Message): List<BatchEvent> {
         val eventList = mutableListOf<BatchEvent>()
 
-        messages
-                .filter { it.content is Multipart }
-                .forEach { msg ->
-                    val from = (msg.from[0] as InternetAddress).address
+        val from = (message.from[0] as InternetAddress).address
+        log.debug("processing email [$from]")
 
-                    log.debug("processing email [$from]")
+        var processed = false
+        val multipart = message.content as Multipart
+        for (k in 0 until multipart.count) {
+            parseAttachment(multipart.getBodyPart(k))?.let {
+                processed = true
+                eventList.add(BatchEvent(from, Instant.now().toString(), it))
+            }
+        }
 
-                    var processed = false
-                    val multipart = msg.content as Multipart
-                    for (k in 0 until multipart.count) {
-                        parseAttachment(multipart.getBodyPart(k))?.let {
-                            processed = true
-                            eventList.add(BatchEvent(from, Instant.now().toString(), it))
-                        }
-                    }
-
-                    if (processed) msg.setFlag(DELETED, true) else msg.setFlag(SEEN, true)
-                }
+        if (processed) message.setFlag(DELETED, true) else message.setFlag(SEEN, true)
 
         return eventList
     }
