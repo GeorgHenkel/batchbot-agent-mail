@@ -1,0 +1,10 @@
+scheduler:
+  delay: 30000
+
+mail:
+  protocol: "imaps"
+  host: ${mail.host}
+  port: "993"
+  user: ${mail.user}
+  password: ${mail.password}
+  tlsEnabled: true
