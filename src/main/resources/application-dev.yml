@@ -2,7 +2,7 @@ scheduler:
   delay: 30000
 
 mail:
-  protocol: "imaps"
+  protocol: imaps
   host: localhost
   port: 993
   user: guest

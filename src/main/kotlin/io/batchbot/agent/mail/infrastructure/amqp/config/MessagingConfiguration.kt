@@ -1,4 +1,4 @@
-package io.batchbot.agent.mail.config
+package io.batchbot.agent.mail.infrastructure.amqp.config
 
 import org.springframework.amqp.core.*
 import org.springframework.amqp.rabbit.connection.ConnectionFactory
